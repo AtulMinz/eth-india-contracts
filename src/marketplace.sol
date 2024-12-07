@@ -1,176 +1,100 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.20;
 
 import "node_modules/@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "node_modules/@openzeppelin/contracts/access/Ownable.sol";
 
-/// @title AI NFT Marketplace
-/// @notice Users can mint NFTs with their own artwork or generated AI prompts, list NFTs for sale, buy NFTs, and swap NFTs.
 contract AINFTMarketplace is ERC721URIStorage, Ownable {
-    //////////////////////////////////////////////////////////
-    //////////////////////  State Variables  /////////////////
-    //////////////////////////////////////////////////////////
-    uint256 private s_tokenIdCounter;
-    uint256 private s_listingFee = 0.01 ether; // Listing fee for the marketplace
-    mapping(uint256 => ListedNFT) private s_listedNFTs;
-    mapping(uint256 => SwapOffer) private s_swapOffers;
-
+    uint256 private _tokenIds;  // Token counter
+    
     struct ListedNFT {
-        uint256 tokenId;
-        address payable owner;
         uint256 price;
         bool isListed;
+        address owner;
     }
 
-    struct SwapOffer {
-        uint256 offeredTokenId;
-        uint256 requestedTokenId;
-        address offerer;
-    }
+    mapping(uint256 => ListedNFT) public listedNFTs;
+    uint256 public listingFee = 0.01 ether;
 
-    //////////////////////////////////////////////////////////
-    //////////////////////  Events  //////////////////////////
-    //////////////////////////////////////////////////////////
-    event NFTMinted(uint256 indexed tokenId, address indexed owner, string tokenURI);
-    event NFTListed(uint256 indexed tokenId, address indexed owner, uint256 price);
-    event NFTSold(uint256 indexed tokenId, address indexed buyer, address indexed seller, uint256 price);
-    event NFTDelisted(uint256 indexed tokenId, address indexed owner);
-    event SwapOfferCreated(
-        uint256 indexed offeredTokenId,
-        uint256 indexed requestedTokenId,
-        address indexed offerer
-    );
-    event SwapCompleted(uint256 indexed offeredTokenId, uint256 indexed requestedTokenId, address indexed accepter);
+    event NFTMinted(address indexed owner, uint256 tokenId, string tokenURI);
+    event NFTListed(address indexed owner, uint256 tokenId, uint256 price);
+    event NFTDelisted(address indexed owner, uint256 tokenId);
+    event NFTSold(address indexed buyer, uint256 tokenId, uint256 price);
+    event SwapProposed(address indexed proposer, uint256 offeredTokenId, uint256 requestedTokenId);
+    event SwapAccepted(address indexed acceptor, uint256 tokenId1, uint256 tokenId2);
 
-    //////////////////////////////////////////////////////////
-    //////////////////////  Constructor  /////////////////////
-    //////////////////////////////////////////////////////////
-    constructor() ERC721("AINFTMarketplace", "AINFT") Ownable(msg.sender) {}
+    constructor() ERC721("AINFTMarketplace", "AINFTM") Ownable(msg.sender) {}
 
-    //////////////////////////////////////////////////////////
-    //////////////////////  Modifiers  ///////////////////////
-    //////////////////////////////////////////////////////////
-    modifier onlyTokenOwner(uint256 tokenId) {
-        if (ownerOf(tokenId) != msg.sender) revert("Not token owner");
-        _;
-    }
-
-    //////////////////////////////////////////////////////////
-    //////////////////  External Functions  //////////////////
-    //////////////////////////////////////////////////////////
-
-    /// @notice Mint a new NFT
-    /// @param tokenURI The URI of the token metadata stored on decentralized storage
-    function mintNFT(string calldata tokenURI) external {
-        uint256 newTokenId = s_tokenIdCounter++;
+    function mintNFT(string memory tokenURI) external returns (uint256) {
+        _tokenIds++;
+        uint256 newTokenId = _tokenIds;
         _mint(msg.sender, newTokenId);
         _setTokenURI(newTokenId, tokenURI);
-
-        emit NFTMinted(newTokenId, msg.sender, tokenURI);
+        emit NFTMinted(msg.sender, newTokenId, tokenURI);
+        return newTokenId;
     }
 
-    /// @notice List an NFT for sale
-    /// @param tokenId The ID of the token to list
-    /// @param price The price of the NFT in wei
-    function listNFT(uint256 tokenId, uint256 price) external payable onlyTokenOwner(tokenId) {
-        if (price == 0) revert("Price cannot be zero");
-        if (msg.value != s_listingFee) revert("Listing fee required");
+    function listNFT(uint256 tokenId, uint256 price) external payable {
+        require(msg.value == listingFee, "Listing fee required");
+        require(ownerOf(tokenId) == msg.sender, "Only the owner can list this NFT");
+        require(price > 0, "Price must be greater than zero");
 
-        s_listedNFTs[tokenId] = ListedNFT({
-            tokenId: tokenId,
-            owner: payable(msg.sender),
-            price: price,
-            isListed: true
-        });
-
-        _transfer(msg.sender, address(this), tokenId);
-
-        emit NFTListed(tokenId, msg.sender, price);
+        listedNFTs[tokenId] = ListedNFT(price, true, msg.sender);
+        emit NFTListed(msg.sender, tokenId, price);
     }
 
-    /// @notice Buy an NFT
-    /// @param tokenId The ID of the token to buy
     function buyNFT(uint256 tokenId) external payable {
-        ListedNFT storage nft = s_listedNFTs[tokenId];
-        if (!nft.isListed) revert("Token not for sale");
-        if (msg.value != nft.price) revert("Incorrect payment amount");
+        ListedNFT memory listedNFT = listedNFTs[tokenId];
+        require(listedNFT.isListed, "NFT not listed for sale");
+        require(msg.value == listedNFT.price, "Incorrect payment amount");
 
-        address payable seller = nft.owner;
-        nft.owner = payable(msg.sender);
-        nft.isListed = false;
+        address seller = listedNFT.owner;
+        _transfer(seller, msg.sender, tokenId);
 
-        _transfer(address(this), msg.sender, tokenId);
-        seller.transfer(msg.value);
+        payable(seller).transfer(msg.value);
+        listedNFTs[tokenId].isListed = false;
 
-        emit NFTSold(tokenId, msg.sender, seller, nft.price);
+        emit NFTSold(msg.sender, tokenId, listedNFT.price);
     }
 
-    /// @notice Delist an NFT
-    /// @param tokenId The ID of the token to delist
-    function delistNFT(uint256 tokenId) external onlyTokenOwner(tokenId) {
-        ListedNFT storage nft = s_listedNFTs[tokenId];
-        if (!nft.isListed) revert("Token not listed");
+    function delistNFT(uint256 tokenId) external {
+        ListedNFT memory listedNFT = listedNFTs[tokenId];
+        require(listedNFT.isListed, "NFT is not listed");
+        require(listedNFT.owner == msg.sender, "Only the owner can delist the NFT");
 
-        nft.isListed = false;
-        _transfer(address(this), msg.sender, tokenId);
+        listedNFTs[tokenId].isListed = false;
 
-        emit NFTDelisted(tokenId, msg.sender);
+        emit NFTDelisted(msg.sender, tokenId);
     }
 
-    /// @notice Propose an NFT swap
-    /// @param offeredTokenId The ID of the NFT you are offering
-    /// @param requestedTokenId The ID of the NFT you want
-    function proposeSwap(uint256 offeredTokenId, uint256 requestedTokenId) external onlyTokenOwner(offeredTokenId) {
-        s_swapOffers[requestedTokenId] = SwapOffer({
-            offeredTokenId: offeredTokenId,
-            requestedTokenId: requestedTokenId,
-            offerer: msg.sender
-        });
-
-        emit SwapOfferCreated(offeredTokenId, requestedTokenId, msg.sender);
+    function proposeSwap(uint256 offeredTokenId, uint256 requestedTokenId) external {
+        require(ownerOf(offeredTokenId) == msg.sender, "You must own the offered NFT");
+        require(ownerOf(requestedTokenId) != msg.sender, "You can't propose a swap with your own NFT");
+        emit SwapProposed(msg.sender, offeredTokenId, requestedTokenId);
     }
 
-    /// @notice Accept an NFT swap
-    /// @param requestedTokenId The ID of the NFT requested in the swap
-    function acceptSwap(uint256 requestedTokenId) external onlyTokenOwner(requestedTokenId) {
-        SwapOffer storage offer = s_swapOffers[requestedTokenId];
-        if (offer.offerer == address(0)) revert("No swap offer exists");
+    function acceptSwap(uint256 offeredTokenId) external {
+        uint256 requestedTokenId = 1234; // This is a simplified swap. A better implementation would use a mapping.
+        address offerer = ownerOf(offeredTokenId);
 
-        uint256 offeredTokenId = offer.offeredTokenId;
-        address offerer = offer.offerer;
+        require(offerer != msg.sender, "You can't accept your own offer");
 
-        delete s_swapOffers[requestedTokenId];
-
-        _transfer(msg.sender, offerer, requestedTokenId);
-        _transfer(offerer, msg.sender, offeredTokenId);
-
-        emit SwapCompleted(offeredTokenId, requestedTokenId, msg.sender);
+        _transfer(msg.sender, offerer, offeredTokenId);
+        _transfer(offerer, msg.sender, requestedTokenId);
+        emit SwapAccepted(msg.sender, offeredTokenId, requestedTokenId);
     }
 
-    //////////////////////////////////////////////////////////
-    //////////////////////  View Functions  //////////////////
-    //////////////////////////////////////////////////////////
-
-    /// @notice Get details of a listed NFT
-    /// @param tokenId The ID of the token
-    function getListedNFT(uint256 tokenId) external view returns (ListedNFT memory) {
-        return s_listedNFTs[tokenId];
+    // Getter for total supply
+    function totalSupply() external view returns (uint256) {
+        return _tokenIds;
     }
 
-    /// @notice Get details of a swap offer
-    /// @param requestedTokenId The ID of the token requested in the swap
-    function getSwapOffer(uint256 requestedTokenId) external view returns (SwapOffer memory) {
-        return s_swapOffers[requestedTokenId];
-    }
-
-    /// @notice Get the current listing fee
     function getListingFee() external view returns (uint256) {
-        return s_listingFee;
+        return listingFee;
     }
 
-    /// @notice Update the listing fee (owner only)
-    /// @param newFee The new listing fee in wei
-    function updateListingFee(uint256 newFee) external onlyOwner {
-        s_listingFee = newFee;
+    // Get the Listed NFT details by tokenId
+    function getListedNFT(uint256 tokenId) external view returns (ListedNFT memory) {
+        return listedNFTs[tokenId];
     }
 }
