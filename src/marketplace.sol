@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import "node_modules/@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "node_modules/@openzeppelin/contracts/access/Ownable.sol";
 
-contract AINFTMarketplace is ERC721URIStorage, Ownable {
+contract NFTMarketplace is ERC721URIStorage, Ownable {
     uint256 private _tokenIds;  // Token counter
     
     struct ListedNFT {
@@ -23,7 +23,7 @@ contract AINFTMarketplace is ERC721URIStorage, Ownable {
     event SwapProposed(address indexed proposer, uint256 offeredTokenId, uint256 requestedTokenId);
     event SwapAccepted(address indexed acceptor, uint256 tokenId1, uint256 tokenId2);
 
-    constructor() ERC721("AINFTMarketplace", "AINFTM") Ownable(msg.sender) {}
+    constructor() ERC721("NFTMarketplace", "ETHIND") Ownable(msg.sender) {}
 
     function mintNFT(string memory tokenURI) external returns (uint256) {
         _tokenIds++;

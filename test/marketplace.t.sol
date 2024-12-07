@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import "src/marketplace.sol";
 
-contract AINFTMarketplaceTest is Test {
-    AINFTMarketplace private marketplace;
+contract NFTMarketplaceTest is Test {
+    NFTMarketplace private marketplace;
 
-    address private user1 = address(0x1);
-    address private user2 = address(0x2);
+    address private user1 = address(0x5fE160F5e20798817cc8b7aa04093DF1e0205b54);
+    address private user2 = address(0x666fC8b938D4CA83DEe1B814b08e80D3E609Cdf3);
 
-    string private constant TOKEN_URI = "ipfs://sample-token-uri";
+    string private constant TOKEN_URI = "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
 
     function setUp() public {
         // Deploy the marketplace contract
-        marketplace = new AINFTMarketplace();
+        marketplace = new NFTMarketplace();
 
         // Give user1 and user2 some Ether for testing
         vm.deal(user1, 10 ether);
@@ -44,7 +44,7 @@ contract AINFTMarketplaceTest is Test {
         marketplace.listNFT{value: listingFee}(tokenId, 1 ether);
 
         // Verify listing
-        AINFTMarketplace.ListedNFT memory listedNFT = marketplace.getListedNFT(tokenId);
+        NFTMarketplace.ListedNFT memory listedNFT = marketplace.getListedNFT(tokenId);
         assertTrue(listedNFT.isListed);
         assertEq(listedNFT.price, 1 ether);
         assertEq(listedNFT.owner, user1);
@@ -85,7 +85,7 @@ contract AINFTMarketplaceTest is Test {
         marketplace.delistNFT(tokenId);
 
         // Verify delisting
-        AINFTMarketplace.ListedNFT memory listedNFT = marketplace.getListedNFT(tokenId);
+        NFTMarketplace.ListedNFT memory listedNFT = marketplace.getListedNFT(tokenId);
         assertFalse(listedNFT.isListed);
         assertEq(marketplace.ownerOf(tokenId), user1);
 
